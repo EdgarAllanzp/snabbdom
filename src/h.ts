@@ -77,6 +77,7 @@ export function h(sel: any, b?: any, c?: any): VNode {  // 具体实现
     sel[2] === 'g' &&
     (sel.length === 3 || sel[3] === '.' || sel[3] === '#')
   ) {
+    // 加上特殊的 namespaces
     addNS(data, children, sel);
   }
 

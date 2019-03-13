@@ -44,8 +44,17 @@ type ArraysOf<T> = {
 
 type ModuleHooks = ArraysOf<Module>;
 
-function createKeyToOldIdx(children: Array<VNode>, beginIdx: number, endIdx: number): KeyToIndexMap {
-  let i: number, map: KeyToIndexMap = {}, key: Key | undefined, ch;
+// 获取 key 和 index 的映射关系
+function createKeyToOldIdx(
+  children: Array<VNode>,
+  beginIdx: number,
+  endIdx: number
+): KeyToIndexMap {
+  let i: number, 
+      map: KeyToIndexMap = {}, 
+      key: Key | undefined, 
+      ch;
+
   for (i = beginIdx; i <= endIdx; ++i) {
     ch = children[i];
     if (ch != null) {
@@ -56,14 +65,14 @@ function createKeyToOldIdx(children: Array<VNode>, beginIdx: number, endIdx: num
   return map;
 }
 
-// 一些钩子名称
+// 一些模块钩子名称
 const hooks: (keyof Module)[] = [
   'create', // 创建
   'update', // 更新
   'remove', // 删除
   'destroy', // 销毁
-  'pre', 
-  'post'
+  'pre', // 开始
+  'post' // 结束
 ];
 
 export {h} from './h';
@@ -129,7 +138,7 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
 
   function createRmCb(childElm: Node, listeners: number) {
     return function rmCb() {
-      // 当监听数量为零，则从父结点移除该结点
+      // 最后一个 remove 钩子执行完毕，再将结点移除
       if (--listeners === 0) {
         const parent = api.parentNode(childElm);
         api.removeChild(parent, childElm);
@@ -144,55 +153,84 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
 
     if (data !== undefined) {
       if (isDef(i = data.hook) && isDef(i = i.init)) {
+        // 调用 vnode 的 init 钩子
         i(vnode);
         data = vnode.data;
       }
     }
-    let children = vnode.children, sel = vnode.sel;
+    let children = vnode.children,
+        sel = vnode.sel;
+
+    // ！ 代表注释
     if (sel === '!') {
       if (isUndef(vnode.text)) {
+        // 如果有 text ，则把 text 置空
         vnode.text = '';
       }
+      // 生成注释
       vnode.elm = api.createComment(vnode.text as string);
     } else if (sel !== undefined) {
-      // Parse selector
+      // Parse selector 
+      // 解析选择器, 形如 `div#id.class1.class2`
       const hashIdx = sel.indexOf('#');
       const dotIdx = sel.indexOf('.', hashIdx);
       const hash = hashIdx > 0 ? hashIdx : sel.length;
       const dot = dotIdx > 0 ? dotIdx : sel.length;
       const tag = hashIdx !== -1 || dotIdx !== -1 ? sel.slice(0, Math.min(hash, dot)) : sel;
+      // 根据 vnode.data 是否有 ns 创建元素，并关联到 vnode 的 elm 上
       const elm = vnode.elm = isDef(data) && isDef(i = (data as VNodeData).ns) ? api.createElementNS(i, tag)
                                                                                : api.createElement(tag);
-      if (hash < dot) elm.setAttribute('id', sel.slice(hash + 1, dot));
-      if (dotIdx > 0) elm.setAttribute('class', sel.slice(dot + 1).replace(/\./g, ' '));
+      // 设置 id 属性
+      if (hash < dot) 
+        elm.setAttribute('id', sel.slice(hash + 1, dot));
+      // 设置 class 属性
+      if (dotIdx > 0) 
+        elm.setAttribute('class', sel.slice(dot + 1).replace(/\./g, ' '));
+
+      // 调用 modules 的 create 钩子
       for (i = 0; i < cbs.create.length; ++i) cbs.create[i](emptyNode, vnode);
+
+      // children 不是数组的情况呢？
       if (is.array(children)) {
+        // children 是数组的情况
         for (i = 0; i < children.length; ++i) {
           const ch = children[i];
           if (ch != null) {
+            // 递归创建子结点
             api.appendChild(elm, createElm(ch as VNode, insertedVnodeQueue));
           }
         }
       } else if (is.primitive(vnode.text)) {
+        // 子结点为 text 的情况
         api.appendChild(elm, api.createTextNode(vnode.text));
       }
       i = (vnode.data as VNodeData).hook; // Reuse variable
       if (isDef(i)) {
-        if (i.create) i.create(emptyNode, vnode);
-        if (i.insert) insertedVnodeQueue.push(vnode);
+        if (i.create) 
+          // 调用 vnode 的 create 钩子
+          i.create(emptyNode, vnode);
+
+        // 收集已插入 DOM 的 vnode
+        if (i.insert) 
+          insertedVnodeQueue.push(vnode);
       }
     } else {
+      // 生成 text 并关联至 vnode.elm
       vnode.elm = api.createTextNode(vnode.text as string);
     }
+    // 返回生成的 DOM 元素
     return vnode.elm;
   }
 
+  // 将 vnodes 生成 DOM 元素并插入 DOM
   function addVnodes(parentElm: Node,
                      before: Node | null,
                      vnodes: Array<VNode>,
                      startIdx: number,
                      endIdx: number,
-                     insertedVnodeQueue: VNodeQueue) {
+                     insertedVnodeQueue: VNodeQueue
+  ) {
+    // 循环将 vnodes 生成 DOM 元素并插入 DOM
     for (; startIdx <= endIdx; ++startIdx) {
       const ch = vnodes[startIdx];
       if (ch != null) {
@@ -246,13 +284,14 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
           // 调用 ch 结点的 destroy 钩子
           invokeDestroyHook(ch);
 
-          // 这个 listeners 有什么用？
+          // 获得 modules 中 remove 钩子数量
           listeners = cbs.remove.length + 1;
           // 创建删除回调函数，延迟执行
           rm = createRmCb(ch.elm as Node, listeners);
 
           // 调用所有模块的 remove 钩子
-          for (i = 0; i < cbs.remove.length; ++i) cbs.remove[i](ch, rm);
+          for (i = 0; i < cbs.remove.length; ++i) 
+            cbs.remove[i](ch, rm);
 
           // 如果有钩子则调用钩子后再调用删除回调；如果没有，则直接调用删除回调
           if (isDef(i = ch.data) && isDef(i = i.hook) && isDef(i = i.remove)) {
@@ -268,23 +307,27 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
     }
   }
 
-  function updateChildren(parentElm: Node,
-                          oldCh: Array<VNode>,
-                          newCh: Array<VNode>,
-                          insertedVnodeQueue: VNodeQueue) {
-    let oldStartIdx = 0, newStartIdx = 0;
-    let oldEndIdx = oldCh.length - 1;
-    let oldStartVnode = oldCh[0];
-    let oldEndVnode = oldCh[oldEndIdx];
-    let newEndIdx = newCh.length - 1;
-    let newStartVnode = newCh[0];
-    let newEndVnode = newCh[newEndIdx];
-    let oldKeyToIdx: any;
+  function updateChildren(
+    parentElm: Node,
+    oldCh: Array<VNode>,
+    newCh: Array<VNode>,
+    insertedVnodeQueue: VNodeQueue
+  ) {
+    let oldStartIdx = 0, // 旧队列开始下标
+        newStartIdx = 0; // 新队列开始下标
+    let oldEndIdx = oldCh.length - 1; // 旧队列结束下标
+    let oldStartVnode = oldCh[0]; // 旧队列开始结点
+    let oldEndVnode = oldCh[oldEndIdx]; // 旧队列结束结点
+    let newEndIdx = newCh.length - 1; // 新队列结束下标
+    let newStartVnode = newCh[0]; // 新队列开始结点
+    let newEndVnode = newCh[newEndIdx]; // 新队列结束结点
+    let oldKeyToIdx: any; // 旧队列 key、index 映射关系表
     let idxInOld: number;
     let elmToMove: VNode;
     let before: any;
 
     while (oldStartIdx <= oldEndIdx && newStartIdx <= newEndIdx) {
+      // 检查四个下边对应 vnode 非空的情况
       if (oldStartVnode == null) {
         oldStartVnode = oldCh[++oldStartIdx]; // Vnode might have been moved left
       } else if (oldEndVnode == null) {
@@ -293,34 +336,54 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
         newStartVnode = newCh[++newStartIdx];
       } else if (newEndVnode == null) {
         newEndVnode = newCh[--newEndIdx];
-      } else if (sameVnode(oldStartVnode, newStartVnode)) {
+      } 
+      
+      // 新旧队列首尾四个结点相似的情况，做移动或更新处理
+      else if (sameVnode(oldStartVnode, newStartVnode)) {
+        // 两个队列的首结点相似，执行 patch，不需要移动 DOM
         patchVnode(oldStartVnode, newStartVnode, insertedVnodeQueue);
         oldStartVnode = oldCh[++oldStartIdx];
         newStartVnode = newCh[++newStartIdx];
       } else if (sameVnode(oldEndVnode, newEndVnode)) {
+        // 两个队列的尾结点相似，执行 patch，不需要移动 DOM
         patchVnode(oldEndVnode, newEndVnode, insertedVnodeQueue);
         oldEndVnode = oldCh[--oldEndIdx];
         newEndVnode = newCh[--newEndIdx];
       } else if (sameVnode(oldStartVnode, newEndVnode)) { // Vnode moved right
+        // 旧队列的首结点与新队列的尾结点相似，说明原来列表第一项的位置调整到列表最后去了
+        // 执行 patch
         patchVnode(oldStartVnode, newEndVnode, insertedVnodeQueue);
+        // 移动旧队列首结点对应的 DOM 结点到 DOM 列表的最后
         api.insertBefore(parentElm, oldStartVnode.elm as Node, api.nextSibling(oldEndVnode.elm as Node));
         oldStartVnode = oldCh[++oldStartIdx];
         newEndVnode = newCh[--newEndIdx];
       } else if (sameVnode(oldEndVnode, newStartVnode)) { // Vnode moved left
+        // 旧队列的尾结点与新队列的首结点相似，说明原来列表最后一项的位置调整到列表最前面去了
+        // 执行 patch
         patchVnode(oldEndVnode, newStartVnode, insertedVnodeQueue);
+        // 操作 DOM 把最后一项挪到最前
         api.insertBefore(parentElm, oldEndVnode.elm as Node, oldStartVnode.elm as Node);
         oldEndVnode = oldCh[--oldEndIdx];
         newStartVnode = newCh[++newStartIdx];
-      } else {
+      } 
+      
+      // 四个首尾结点都不相似的情况
+      // 这里是 diff 算法核心，同层次的比较两个列表。通过一个 hashmap 将时间复杂度降至 O(n)
+      else {
+        // 创建一次旧队列的 key 和 index 关系映射表：key -> index
         if (oldKeyToIdx === undefined) {
           oldKeyToIdx = createKeyToOldIdx(oldCh, oldStartIdx, oldEndIdx);
         }
+        // 获取旧队列中新结点的 key 值对应的结点的下标
         idxInOld = oldKeyToIdx[newStartVnode.key as string];
         if (isUndef(idxInOld)) { // New element
+          // 旧队列里没有这个 vnode，创建并插入 DOM 
           api.insertBefore(parentElm, createElm(newStartVnode, insertedVnodeQueue), oldStartVnode.elm as Node);
           newStartVnode = newCh[++newStartIdx];
         } else {
+          // 存在相同的 key 值得情况
           elmToMove = oldCh[idxInOld];
+          // 选择器不一样，则创建新的结点插入 DOM。否则 patch，然后调整位置
           if (elmToMove.sel !== newStartVnode.sel) {
             api.insertBefore(parentElm, createElm(newStartVnode, insertedVnodeQueue), oldStartVnode.elm as Node);
           } else {
@@ -332,7 +395,10 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
         }
       }
     }
+
+    // 循环结束后，处理可能未处理到的 vnode
     if (oldStartIdx <= oldEndIdx || newStartIdx <= newEndIdx) {
+      // newVnodes 中未处理完的直接加入，反之移除
       if (oldStartIdx > oldEndIdx) {
         before = newCh[newEndIdx+1] == null ? null : newCh[newEndIdx+1].elm;
         addVnodes(parentElm, before, newCh, newStartIdx, newEndIdx, insertedVnodeQueue);
@@ -378,6 +444,7 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
       if (isDef(oldCh) && isDef(ch)) {
         // 新旧子结点都存在
         if (oldCh !== ch)
+          // 核心逻辑，比较新旧 children 并更新
           updateChildren(
             elm,
             oldCh as Array<VNode>,
@@ -386,10 +453,14 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
           );
       } else if (isDef(ch)) {
         // 新结点有子结点，旧结点没有子结点的情况
-        if (isDef(oldVnode.text)) api.setTextContent(elm, '');
+        if (isDef(oldVnode.text)) 
+          // 如果旧结点原来有 text，则把 text 置为空串 
+          api.setTextContent(elm, '');
+        // 往 DOM 里边添加 vnode 的子结点
         addVnodes(elm, null, ch as Array<VNode>, 0, (ch as Array<VNode>).length - 1, insertedVnodeQueue);
       } else if (isDef(oldCh)) {
         // 旧结点有子结点，新结点没有子结点的情况
+        // 移除 DOM 里边旧结点的子结点
         removeVnodes(elm, oldCh as Array<VNode>, 0, (oldCh as Array<VNode>).length - 1);
       } else if (isDef(oldVnode.text)) {
         // 旧结点有文本结点，新结点没有文本结点的情况
@@ -398,6 +469,7 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
     } else if (oldVnode.text !== vnode.text) {
       // 新旧结点的文本结点不一样
       if (isDef(oldCh)) {
+        // 如果旧结点有 children 的情况，先移除旧结点的 children ，触发相关钩子
         removeVnodes(
           elm,
           oldCh as Array<VNode>,

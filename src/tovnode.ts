@@ -1,10 +1,14 @@
 import vnode, {VNode} from './vnode';
 import htmlDomApi, {DOMAPI} from './htmldomapi';
 
+// 将 DOM 元素转换为 vnode
 export function toVNode(node: Node, domApi?: DOMAPI): VNode {
+  // 默认为 html DOM API
   const api: DOMAPI = domApi !== undefined ? domApi : htmlDomApi;
   let text: string;
+
   if (api.isElement(node)) {
+    // 元素结点
     const id = node.id ? '#' + node.id : '';
     const cn = node.getAttribute('class');
     const c = cn ? '.' + cn.split(' ').join('.') : '';
@@ -26,12 +30,15 @@ export function toVNode(node: Node, domApi?: DOMAPI): VNode {
     }
     return vnode(sel, {attrs}, children, undefined, node);
   } else if (api.isText(node)) {
+    // 文本结点
     text = api.getTextContent(node) as string;
     return vnode(undefined, undefined, undefined, text, node);
   } else if (api.isComment(node)) {
+    // 注释结点
     text = api.getTextContent(node) as string;
     return vnode('!', {}, [], text, node as any);
   } else {
+    // 其他情况
     return vnode('', {}, [], undefined, node as any);
   }
 }
